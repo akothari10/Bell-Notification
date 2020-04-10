@@ -34,7 +34,7 @@ public class SendNotification {
             else if(message.heymarket__Sf_Record_Id__c.startsWith('001')){
                 accountWithMessage.put(message.Id,message.heymarket__Sf_Record_Id__c);
             }
-            else{
+            else if(message.heymarket__Sf_Record_Id__c.startsWith('00Q')){
                 leadWithMessage.put(message.Id,message.heymarket__Sf_Record_Id__c);                
             }
         }
@@ -57,7 +57,7 @@ public class SendNotification {
                 input.targetId = accountWithMessage.get(message.id);
                 title += accounts.get(accountWithMessage.get(message.id)).Name;
             }
-            else{
+            else if(message.heymarket__Sf_Record_Id__c.startsWith('00Q')){
                 input.targetId = leadWithMessage.get(message.id);
                 title += leads.get(leadWithMessage.get(message.id)).Name;
             }
