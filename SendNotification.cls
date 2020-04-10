@@ -11,42 +11,63 @@ public class SendNotification {
         }
     }
     @InvocableMethod(label='Send Notification To User' description='Send Salesforce Notification on Incoming message' category='Message')
-    public static void prepareNotification(List<FlowInput> messageIds){
-        
-        Message__c message = [SELECT Id, heymarket__text__c, heymarket__Sf_Record_Id__c FROM Message__c WHERE Id = :messageIds[0].messageId][0];
-        CustomNotificationType cusNotifId= [SELECT Id, DeveloperName FROM CustomNotificationType where DeveloperName = 'IncomingMessage' LIMIT 1];
-        CustomNotificationActionInput input = new CustomNotificationActionInput();
-        input.customNotifTypeId = cusNotifId.Id;
-        input.recipientIds = new List<String>{UserInfo.getUserId()};
-        
-        String title = 'New Incoming Message from ';
-        
-        if(message.heymarket__Sf_Record_Id__c.startsWith('003')){
-             Contact recipient = [SELECT Id, Name FROM Contact WHERE Id =: message.heymarket__Sf_Record_Id__c LIMIT 1][0];
-             input.targetId = recipient.Id;
-             title += recipient.Name;
+    public static void prepareAndSendNotification(List<FlowInput> messageIds){
+        List<String> msgIds = new List<String>();
+        for(FlowInput messagId:messageIds){
+            msgIds.add(messagId.messageId);
         }
-        else if(message.heymarket__Sf_Record_Id__c.startsWith('001')){
-            Account recipient = [SELECT Id, Name FROM Account WHERE Id =: message.heymarket__Sf_Record_Id__c LIMIT 1][0];
-            input.targetId = recipient.Id;
-            title += recipient.Name;
-        }
-        else{
-            Lead recipient = [SELECT Id, Name FROM Lead WHERE Id =: message.heymarket__Sf_Record_Id__c LIMIT 1][0];
-            input.targetId = recipient.Id;
-            title += recipient.Name;
-        }
-        
-        input.title = title;
-        input.body = message.heymarket__Text__c;
-        
-        CustomNotificationAction action = new CustomNotificationAction();
-        action.inputs = new List<CustomNotificationActionInput>{input};
-        sendCustomNotification(action);
+        //Send Notification in future
+        sendCustomNotification(msgIds);
         
     }
-
-    public static void sendCustomNotification(CustomNotificationAction action){
+    @future(callout=true)
+    public static void sendCustomNotification(List<String> messageId){
+        List<heymarket__Message__c> messages = [SELECT Id, heymarket__text__c, heymarket__Sf_Record_Id__c FROM heymarket__Message__c WHERE Id IN :messageId];
+        CustomNotificationType cusNotifId= [SELECT Id, DeveloperName FROM CustomNotificationType where DeveloperName = 'IncomingMessage' LIMIT 1];
+        Map<Id,Id> contactWithMessage = new Map<Id,Id>();
+        Map<Id,Id> leadWithMessage = new Map<Id,Id>();
+        Map<Id,Id> accountWithMessage = new Map<Id,Id>();
+        for(heymarket__Message__c message : messages){
+            if(message.heymarket__Sf_Record_Id__c.startsWith('003')){
+                contactWithMessage.put(message.Id,message.heymarket__Sf_Record_Id__c);
+            }
+            else if(message.heymarket__Sf_Record_Id__c.startsWith('001')){
+                accountWithMessage.put(message.Id,message.heymarket__Sf_Record_Id__c);
+            }
+            else{
+                leadWithMessage.put(message.Id,message.heymarket__Sf_Record_Id__c);                
+            }
+        }
+        Map<ID,Contact> contacts = new Map<ID, Contact>([SELECT Id, Name FROM Contact WHERE Id IN :contactWithMessage.values() ]);
+        Map<ID,Lead> leads = new Map<ID, Lead>([SELECT Id, Name FROM Lead WHERE Id IN :leadWithMessage.values()]);
+        Map<ID,Account> accounts = new Map<ID, Account>([SELECT Id, Name FROM Account WHERE Id IN :accountWithMessage.values()]);
+        List<CustomNotificationActionInput> inputs = new List<CustomNotificationActionInput>();
+        for(heymarket__Message__c message : messages){
+            CustomNotificationActionInput input = new CustomNotificationActionInput();
+            input.customNotifTypeId = cusNotifId.Id;
+            input.recipientIds = new List<String>{UserInfo.getUserId()};
+                
+            String title = 'New Incoming Message from ';
+            
+            if(message.heymarket__Sf_Record_Id__c.startsWith('003')){
+                input.targetId = contactWithMessage.get(message.id);
+                title += contacts.get(contactWithMessage.get(message.id)).Name;
+            }
+            else if(message.heymarket__Sf_Record_Id__c.startsWith('001')){
+                input.targetId = accountWithMessage.get(message.id);
+                title += accounts.get(accountWithMessage.get(message.id)).Name;
+            }
+            else{
+                input.targetId = leadWithMessage.get(message.id);
+                title += leads.get(leadWithMessage.get(message.id)).Name;
+            }
+            
+            input.title = title;
+            input.body = message.heymarket__Text__c;
+            inputs.add(input);
+        }
+        CustomNotificationAction action = new CustomNotificationAction();
+        action.inputs = inputs;
         Http h = new Http();
         HttpRequest req = new HttpRequest();
         req.setEndpoint(Url.getOrgDomainUrl().toExternalForm() + '/services/data/v46.0/actions/standard/customNotificationAction');
@@ -56,13 +77,13 @@ public class SendNotification {
         req.setBody(JSON.serialize(action));
         HttpResponse res = h.send(req);
         System.debug(res.getBody());
+        
     }
-    
     public class CustomNotificationAction
     {
         public List<CustomNotificationActionInput> inputs { get; set; }
     }
-
+    
     public class CustomNotificationActionInput
     {
         public String customNotifTypeId { get; set; }
